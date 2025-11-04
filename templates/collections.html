@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h3>📘 Database: {{ db_name }}</h3>
+  <hr>
+
+  <div class="d-flex justify-content-between mb-3">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← Back to Dashboard</a>
+    <button class="btn btn-success" id="addCollectionBtn">➕ Add Collection</button>
+  </div>
+
+  <div id="collectionsContainer">
+    {% if collections %}
+    <table class="table table-bordered table-hover align-middle" id="collectionsTable">
+      <thead class="table-dark">
+        <tr><th>Collection Name</th><th style="width: 180px;">Actions</th></tr>
+      </thead>
+      <tbody id="collectionsBody">
+        {% for collection in collections %}
+        <tr data-name="{{ collection }}">
+          <td>{{ collection }}</td>
+          <td>
+            <a href="{{ url_for('data_view', db_name=db_name, collection_name=collection) }}" class="btn btn-primary btn-sm">📂 Open</a>
+            <button class="btn btn-danger btn-sm delete-collection" data-name="{{ collection }}">🗑 Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="alert alert-info">No collections found in this database.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Add Collection Modal -->
+<div class="modal fade" id="addCollectionModal" tabindex="-1" aria-labelledby="addCollectionLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addCollectionLabel">Add New Collection</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="newCollectionName" class="form-control" placeholder="Enter collection name">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" id="confirmAddCollection">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/collection.js') }}"></script>
+<script>
+  const dbName = "{{ db_name }}";
+</script>
+{% endblock %}

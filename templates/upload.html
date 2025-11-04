@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<h4>Upload Excel or CSV</h4>
+
+<form method="POST" enctype="multipart/form-data" id="uploadForm" onsubmit="return validateUploadForm(event)">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+  <div class="mb-3">
+    <label class="form-label">Choose Database</label>
+    <select class="form-select" name="db_name" id="upload-db-name" required>
+      {% for db in databases %}
+        <option value="{{ db }}" {% if db == db_name %}selected{% endif %}>{{ db }}</option>
+      {% endfor %}
+    </select>
+    <div class="invalid-feedback" id="db-name-error"></div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Collection Name</label>
+    <input class="form-control" name="collection_name" id="upload-collection-name" value="{{ collection_name or '' }}" required>
+    <div class="invalid-feedback" id="collection-name-error"></div>
+    <small class="form-text text-muted">Collection name can contain letters, numbers, underscores, hyphens, and dots</small>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Select File (.xlsx or .csv)</label>
+    <input class="form-control" type="file" name="file" id="upload-file" accept=".xlsx,.xls,.csv" {% if not file_path %}required{% endif %}>
+    <div class="invalid-feedback" id="file-error"></div>
+  </div>
+
+  {% if preview %}
+    <h5 class="mt-4">Preview (first few rows)</h5>
+    <table class="table table-bordered table-sm">
+      <thead>
+        <tr>
+          {% for col in headers %}
+          <th>{{ col }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in preview %}
+        <tr>
+          {% for col in headers %}
+          <td>{{ row[col] }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <input type="hidden" name="file_path" value="{{ file_path }}">
+    <button name="import" value="1" class="btn btn-success">Import to MongoDB</button>
+    <a href="{{ url_for('upload') }}" class="btn btn-secondary">Cancel</a>
+  {% else %}
+    <button name="preview" value="1" class="btn btn-primary">Preview</button>
+  {% endif %}
+</form>
+
+<script>
+function validateUploadForm(event) {
+  const dbName = document.getElementById('upload-db-name').value;
+  const collectionName = document.getElementById('upload-collection-name').value.trim();
+  const fileInput = document.getElementById('upload-file');
+  
+  let isValid = true;
+  
+  // Validate collection name
+  if (!collectionName) {
+    document.getElementById('collection-name-error').textContent = 'Collection name is required';
+    document.getElementById('upload-collection-name').classList.add('is-invalid');
+    isValid = false;
+  } else if (collectionName.length > 255) {
+    document.getElementById('collection-name-error').textContent = 'Collection name cannot exceed 255 characters';
+    document.getElementById('upload-collection-name').classList.add('is-invalid');
+    isValid = false;
+  } else if (!/^[a-zA-Z0-9_\-\.]+$/.test(collectionName)) {
+    document.getElementById('collection-name-error').textContent = 'Collection name can only contain letters, numbers, underscores, hyphens, and dots';
+    document.getElementById('upload-collection-name').classList.add('is-invalid');
+    isValid = false;
+  } else if (collectionName.startsWith('system.')) {
+    document.getElementById('collection-name-error').textContent = 'Collection name cannot start with "system."';
+    document.getElementById('upload-collection-name').classList.add('is-invalid');
+    isValid = false;
+  } else {
+    document.getElementById('upload-collection-name').classList.remove('is-invalid');
+  }
+  
+  // Validate file
+  if (fileInput.files.length === 0 && !document.querySelector('input[name="file_path"]')) {
+    document.getElementById('file-error').textContent = 'Please select a file';
+    fileInput.classList.add('is-invalid');
+    isValid = false;
+  } else if (fileInput.files.length > 0) {
+    const file = fileInput.files[0];
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['xlsx', 'xls', 'csv'].includes(ext)) {
+      document.getElementById('file-error').textContent = 'Please select a valid Excel or CSV file';
+      fileInput.classList.add('is-invalid');
+      isValid = false;
+    } else {
+      fileInput.classList.remove('is-invalid');
+    }
+  }
+  
+  if (!isValid) {
+    event.preventDefault();
+    App.showToast('Please fix the errors in the form', 'danger');
+    return false;
+  }
+  
+  return true;
+}
+
+// Clear validation on input
+document.getElementById('upload-collection-name').addEventListener('input', function() {
+  this.classList.remove('is-invalid');
+});
+document.getElementById('upload-file').addEventListener('change', function() {
+  this.classList.remove('is-invalid');
+});
+</script>
+{% endblock %}

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block content %}
+<h4>Dashboard</h4>
+<p>Welcome, {{ username }}. Below are databases on your connected MongoDB server.</p>
+
+<!-- Stats Cards -->
+<div class="row g-3 mb-3" id="stats-cards">
+  <div class="col-md-4">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="h6 text-muted mb-1">Databases</div>
+            <div class="h3 mb-0" id="stat-databases">--</div>
+          </div>
+          <div class="display-6">🗄️</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="h6 text-muted mb-1">Collections</div>
+            <div class="h3 mb-0" id="stat-collections">--</div>
+          </div>
+          <div class="display-6">📚</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="h6 text-muted mb-1">Documents</div>
+            <div class="h3 mb-0" id="stat-documents">--</div>
+          </div>
+          <div class="display-6">🧾</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="h6 mb-0">Documents per Database</div>
+          <small class="text-muted" id="last-updated">--</small>
+        </div>
+        <canvas id="docsChart" height="80"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create New Database -->
+<div class="mb-3">
+  <div class="input-group w-50">
+    <input id="new-db-name" class="form-control" placeholder="New database name (e.g. my_data_db)" />
+    <button id="create-db-btn" class="btn btn-success">Create DB</button>
+  </div>
+</div>
+
+<!-- Database List -->
+<div id="db-list" class="mt-3">
+  <h5>Databases</h5>
+  <ul id="databases-ul" class="list-group"></ul>
+</div>
+
+<script>
+// Show current Mongo connection and ping status
+async function showConnectionInfo(){
+  try{
+    const res = await fetch('/api/info');
+    if(!res.ok) return;
+    const data = await res.json();
+    const note = document.createElement('div');
+    note.className = 'alert alert-secondary mt-3';
+    note.innerHTML = `<strong>MongoDB Connection:</strong> ${data.mongo_uri} — <span class="badge bg-success">OK</span>`;
+    document.getElementById('db-list').prepend(note);
+  }catch(e){ /* ignore */ }
+}
+
+async function refreshDBs() {
+  try {
+    const res = await fetch('/api/databases');
+    if (res.status === 200) {
+      const data = await res.json();
+      const ul = document.getElementById('databases-ul');
+      ul.innerHTML = '';
+
+      (data.databases || []).forEach(db => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-center';
+        
+        // Name and Open button
+        li.innerHTML = `
+          <span>${db}</span>
+          <button class="btn btn-sm btn-outline-primary" onclick="window.location.href='/collections/${db}'">Open</button>
+        `;
+
+        ul.appendChild(li);
+      });
+    } else {
+      const txt = await res.text();
+      App.showToast('Error fetching DBs: ' + txt, 'danger');
+    }
+  } catch (err) {
+    console.error(err);
+    App.showToast('Failed to load databases.', 'danger');
+  }
+}
+
+// Client-side validation for DB name
+function validateDbNameInput(name) {
+  if (!name || name.trim().length === 0) {
+    return { valid: false, message: "Database name is required" };
+  }
+  if (name.length > 63) {
+    return { valid: false, message: "Database name cannot exceed 63 characters" };
+  }
+  if (!/^[a-zA-Z0-9_\-]+$/.test(name)) {
+    return { valid: false, message: "Database name can only contain letters, numbers, underscores, and hyphens" };
+  }
+  if (name.startsWith('-') || name.startsWith('_')) {
+    return { valid: false, message: "Database name cannot start with '-' or '_'" };
+  }
+  const reserved = ['admin', 'local', 'config', 'system'];
+  if (reserved.includes(name.toLowerCase())) {
+    return { valid: false, message: `Database name '${name}' is reserved and cannot be used` };
+  }
+  return { valid: true };
+}
+
+let docsChart;
+async function refreshMetrics() {
+  try {
+    const res = await fetch('/api/metrics/overview');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    document.getElementById('stat-databases').textContent = data.databases ?? 0;
+    document.getElementById('stat-collections').textContent = data.collections ?? 0;
+    document.getElementById('stat-documents').textContent = data.documents ?? 0;
+    document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+    const labels = (data.per_db || []).map(d => d.db);
+    const docs = (data.per_db || []).map(d => d.documents);
+
+    const ctx = document.getElementById('docsChart');
+    if (docsChart) {
+      docsChart.data.labels = labels;
+      docsChart.data.datasets[0].data = docs;
+      docsChart.update();
+    } else if (window.Chart && ctx) {
+      docsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Documents',
+            data: docs,
+            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+            borderColor: 'rgb(54, 162, 235)',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0 } }
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+document.getElementById('create-db-btn').addEventListener('click', async () => {
+  const name = document.getElementById('new-db-name').value.trim();
+  
+  // Client-side validation
+  const validation = validateDbNameInput(name);
+  if (!validation.valid) {
+    App.showToast(validation.message, 'danger');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/databases', {
+      method: 'POST',
+      headers: App.getHeaders(),
+      body: JSON.stringify({ name })
+    });
+
+    if (res.ok) {
+      document.getElementById('new-db-name').value = '';
+      await refreshDBs();
+      App.showToast('✅ Database created successfully! Check MongoDB Compass.', 'success');
+    } else {
+      const err = await res.json();
+      App.showToast(err.message || err.error || 'Failed to create database', 'danger');
+    }
+  } catch (err) {
+    console.error(err);
+    App.showToast('Error creating database.', 'danger');
+  }
+});
+
+refreshDBs();
+showConnectionInfo();
+refreshMetrics();
+setInterval(refreshMetrics, 10000); // poll every 10s
+</script>
+{% endblock %}

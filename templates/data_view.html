@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h3>📂 Collection: {{ db_name }} → {{ collection_name }}</h3>
+  <hr>
+
+  <div class="d-flex justify-content-between mb-3">
+    <div>
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addModal">➕ Add Document</button>
+      <button id="refreshBtn" class="btn btn-outline-primary">↻ Refresh</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('api_export_collection_csv', db_name=db_name, collection_name=collection_name) }}">⬇️ Export CSV</a>
+    </div>
+    <a href="{{ url_for('collections', db_name=db_name) }}" class="btn btn-secondary">← Back</a>
+  </div>
+
+  <!-- Data container -->
+  <div id="dataContainer"></div>
+
+  <!-- Pagination -->
+  <div class="d-flex justify-content-between align-items-center mt-3">
+    <div id="totalLabel" class="text-muted small"></div>
+    <nav aria-label="Page navigation">
+      <ul class="pagination mb-0" id="pagination"></ul>
+    </nav>
+  </div>
+</div>
+
+<!-- ========================= -->
+<!-- Modal: Add Document -->
+<!-- ========================= -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="addModalLabel">➕ Add New Document</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <textarea id="jsonInput" class="form-control font-monospace" rows="10" placeholder='{"key": "value"}'></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" id="saveDocBtn">💾 Save Document</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================= -->
+<!-- Modal: Edit Document -->
+<!-- ========================= -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="editModalLabel">✏️ Edit Document</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-old-doc" />
+        <textarea id="edit-json" class="form-control font-monospace" rows="10"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="editSaveBtn">💾 Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================= -->
+<!-- JavaScript Logic -->
+<!-- ========================= -->
+<script>
+const dbName = "{{ db_name }}";
+const collection = "{{ collection_name }}";
+let currentPage = 1;
+const limit = 10;
+let totalDocs = 0;
+
+// Load paginated documents
+async function loadData(page=1){
+  const res = await fetch(`/api/data/${dbName}/${collection}?page=${page}&limit=${limit}`);
+  const data = await res.json();
+  const docs = data.docs || data.documents || [];
+  const total = data.total || 0;
+  totalDocs = total;
+  const container = document.getElementById("dataContainer");
+
+  if(!docs.length){
+    container.innerHTML = "<div class='alert alert-info'>No documents found.</div>";
+    return;
+  }
+
+  // Build table
+  const keys = Object.keys(docs[0]);
+  let html = `<table class="table table-bordered table-hover align-middle"><thead class="table-dark"><tr>`;
+  keys.forEach(k => html += `<th>${k}</th>`);
+  html += `<th>Actions</th></tr></thead><tbody>`;
+  docs.forEach(doc => {
+    html += `<tr data-id="${doc._id}">
+      ${keys.map(k => `<td contenteditable="${k!=='_id'}" class="editable" data-key="${k}">${doc[k]}</td>`).join("")}
+      <td class="text-center">
+        <button class="btn btn-sm btn-primary me-1 save-btn">💾</button>
+        <button class="btn btn-sm btn-info me-1 edit-btn">✏️</button>
+        <button class="btn btn-sm btn-danger delete-btn">🗑️</button>
+      </td></tr>`;
+  });
+  html += "</tbody></table>";
+  container.innerHTML = html;
+
+  // Pagination setup
+  const pages = Math.ceil(total / limit) || 1;
+  const pagination = document.getElementById("pagination");
+  pagination.innerHTML = "";
+  // Prev
+  pagination.innerHTML += `<li class="page-item ${page===1?'disabled':''}"><a class="page-link" href="#" data-page="prev">Prev</a></li>`;
+  // Numbers (show up to 7 around current)
+  const start = Math.max(1, page-3);
+  const end = Math.min(pages, page+3);
+  for(let i=start;i<=end;i++){
+    pagination.innerHTML += `<li class="page-item ${i===page?'active':''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+  }
+  // Next
+  pagination.innerHTML += `<li class="page-item ${page===pages?'disabled':''}"><a class="page-link" href="#" data-page="next">Next</a></li>`;
+  // Total label
+  document.getElementById("totalLabel").textContent = `Total: ${total} documents • Page ${page} of ${pages}`;
+
+  // Wire up buttons
+  document.querySelectorAll(".page-link").forEach(a=>{
+    a.onclick = (e)=>{ 
+      e.preventDefault();
+      const p = a.dataset.page;
+      if(p === 'prev' && currentPage>1) currentPage -= 1;
+      else if(p === 'next') {
+        const max = Math.ceil(totalDocs / limit) || 1;
+        if(currentPage < max) currentPage += 1;
+      } else {
+        currentPage = parseInt(p);
+      }
+      loadData(currentPage);
+    };
+  });
+  bindCRUD();
+}
+
+function bindCRUD(){
+  // Delete
+  document.querySelectorAll(".delete-btn").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.closest("tr").dataset.id;
+      if(!confirm("Delete this document?")) return;
+      const res =       await fetch("/api/document/delete", {
+        method: "POST",
+        headers: App.getHeaders(),
+        body: JSON.stringify({ db: dbName, collection, query: {_id: id}})
+      });
+      if(res.ok){ App.showToast('Deleted successfully', 'success'); }
+      else { const t = await res.text(); App.showToast('Delete failed: '+t, 'danger'); }
+      loadData(currentPage);
+    };
+  });
+
+  // Inline Save
+  document.querySelectorAll(".save-btn").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const row = btn.closest("tr");
+      const id = row.dataset.id;
+      let new_values = {};
+      row.querySelectorAll(".editable").forEach(cell=>{
+        const key = cell.dataset.key;
+        const val = cell.innerText.trim();
+        if(key !== "_id") new_values[key] = val;
+      });
+      const res =       await fetch("/api/document/update", {
+        method: "POST",
+        headers: App.getHeaders(),
+        body: JSON.stringify({ db: dbName, collection, query:{_id:id}, new_values})
+      });
+      if(res.ok){ App.showToast('Updated', 'success'); } else { const t = await res.text(); App.showToast('Update failed: '+t, 'danger'); }
+      loadData(currentPage);
+    };
+  });
+
+  // Edit via modal
+  document.querySelectorAll(".edit-btn").forEach(btn=>{
+    btn.onclick = (e)=>{
+      const row = btn.closest("tr");
+      const doc = {};
+      row.querySelectorAll(".editable").forEach(cell=>{
+        const key = cell.dataset.key;
+        if(key !== "_id"){
+          doc[key] = cell.innerText.trim();
+        }
+      });
+      document.getElementById("edit-json").value = JSON.stringify(doc, null, 2);
+      // also stash the original _id for query
+      const originalId = row.dataset.id;
+      document.getElementById("edit-old-doc").value = JSON.stringify({ _id: originalId });
+      new bootstrap.Modal(document.getElementById("editModal")).show();
+    };
+  });
+}
+
+// Refresh
+document.getElementById("refreshBtn").onclick = ()=> loadData(currentPage);
+
+// Add Document
+document.getElementById("saveDocBtn").onclick = async ()=>{
+  const jsonInput = document.getElementById("jsonInput");
+  const jsonText = jsonInput.value.trim();
+  
+  if (!jsonText) {
+    App.showToast("Please enter JSON data", 'danger');
+    return;
+  }
+  
+  try {
+    const doc = JSON.parse(jsonText);
+    
+    // Basic validation
+    if (typeof doc !== 'object' || Array.isArray(doc)) {
+      App.showToast("Document must be a JSON object (not an array)", 'danger');
+      return;
+    }
+    
+    if (Object.keys(doc).length === 0) {
+      App.showToast("Document cannot be empty", 'danger');
+      return;
+    }
+    
+    const res = await fetch("/api/document/add", {
+      method: "POST",
+      headers: App.getHeaders(),
+      body: JSON.stringify({ db: dbName, collection, doc })
+    });
+    
+    const data = await res.json();
+    if(res.ok){ 
+      App.showToast(data.message || 'Document inserted successfully', 'success'); 
+      jsonInput.value = "";
+      bootstrap.Modal.getInstance(document.getElementById("addModal")).hide();
+      loadData(currentPage);
+    } else { 
+      App.showToast(data.message || data.error || 'Failed to insert document', 'danger'); 
+    }
+  } catch(err){
+    App.showToast("Invalid JSON: " + err.message, 'danger');
+  }
+};
+
+// Save edited doc
+document.getElementById("editSaveBtn").onclick = async ()=>{
+  const editJson = document.getElementById("edit-json");
+  const jsonText = editJson.value.trim();
+  
+  if (!jsonText) {
+    App.showToast("Please enter JSON data", 'danger');
+    return;
+  }
+  
+  try {
+    const oldDoc = JSON.parse(document.getElementById("edit-old-doc").value);
+    const newDoc = JSON.parse(jsonText);
+    
+    if (typeof newDoc !== 'object' || Array.isArray(newDoc)) {
+      App.showToast("Document must be a JSON object (not an array)", 'danger');
+      return;
+    }
+    
+    if ("_id" in newDoc) delete newDoc._id;
+    
+    const res = await fetch("/api/document/update", {
+      method: "POST",
+      headers: App.getHeaders(),
+      body: JSON.stringify({ db: dbName, collection, query: {_id: oldDoc._id}, new_values: newDoc })
+    });
+    
+    const data = await res.json();
+    if(res.ok){ 
+      App.showToast(data.message || 'Document updated successfully', 'success'); 
+      bootstrap.Modal.getInstance(document.getElementById("editModal")).hide();
+      loadData(currentPage);
+    } else { 
+      App.showToast(data.message || data.error || 'Failed to update document', 'danger'); 
+    }
+  } catch(err){
+    App.showToast("Invalid JSON or update error: " + err.message, 'danger');
+  }
+};
+
+// Initial load
+loadData();
+</script>
+{% endblock %}
