@@ -18,6 +18,7 @@ instance/
 .env
 .env.local
 .env.*.local
+ENV_EXAMPLE.txt
 
 # IDE
 .vscode/
