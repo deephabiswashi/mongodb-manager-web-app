@@ -18,8 +18,7 @@ instance/
 .env
 .env.local
 .env.*.local
-# Keep ENV_EXAMPLE.txt tracked (it's a template, not sensitive data)
-!ENV_EXAMPLE.txt
+ENV_EXAMPLE.txt
 
 # IDE
 .vscode/
